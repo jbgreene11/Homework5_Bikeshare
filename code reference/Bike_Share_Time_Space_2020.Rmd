@@ -113,6 +113,8 @@ Let's read in the month of May, 2018 using `read.socrata` and a SQL query. The w
 
 ```{r read_dat, cache = TRUE}
 dat <- read.socrata("https://data.cityofchicago.org/resource/fg6s-gzvg.csv?$where=start_time%20between%20%272018-05-1T12:00:00%27%20and%20%272018-05-31T14:00:00%27")
+
+
 ```
 
 We can take a look at our data to see the format and names of all of our columns using the `glimpse` command.

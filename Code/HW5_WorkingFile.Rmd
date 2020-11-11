@@ -75,15 +75,22 @@ census_api_key("c0e7f2bf1ed21adb8eca6c9652036dfd5c6e1040", overwrite = TRUE)
 Read in 2018 Data using read.socrata and SQL query. 
 
 ```{r read_dat, cache = TRUE}
-dat <- read.socrata("LINK HERE")
+
+#JG Note: I had trouble reading this in so I just imported it from our Github file as a csv.
+
+bostonbikes <-
+  read.csv("C:/Users/green/OneDrive/Desktop", sep="  ", header=TRUE)
+
+dat <- bostonbike_May2018
+
 ```
 
 Use date parsing to bin the data by 15 and 60 minute intervals
 
 ```{r time_bins, cache = TRUE}
 dat2 <- dat %>%
-  mutate(interval60 = floor_date(ymd_hms(start_time), unit = "hour"),
-         interval15 = floor_date(ymd_hms(start_time), unit = "15 mins"),
+  mutate(interval60 = floor_date(ymd_hms(starttime), unit = "hour"),
+         interval15 = floor_date(ymd_hms(starttime), unit = "15 mins"),
          week = week(interval60),
          dotw = wday(interval60, label=TRUE))
 
@@ -103,9 +110,9 @@ bostonCensus <-
                         "B08012_001", "B08301_001", 
                         "B08301_010", "B01002_001"), 
           year = 2017, 
-          state = "IL", 
+          state = "MA", 
           geometry = TRUE, 
-          county=c("Cook"),
+          county=c("Suffolk"),
           output = "wide") %>%
   rename(Total_Pop =  B01003_001E,
          Med_Inc = B19013_001E,
@@ -125,8 +132,8 @@ bostonCensus <-
 ```
 
 ```{r extract_geometries, cache = TRUE}
-chicagoTracts <- 
-  chicagoCensus %>%
+bostonTracts <- 
+  bostonCensus %>%
   as.data.frame() %>%
   distinct(GEOID, .keep_all = TRUE) %>%
   select(GEOID, geometry) %>% 
@@ -135,6 +142,8 @@ chicagoTracts <-
 ```
 
 ```{r add_census_tracts, cache = TRUE, message = FALSE, warning = FALSE}
+
+
 dat_census <- st_join(dat2 %>% 
           filter(is.na(from_longitude) == FALSE &
                    is.na(from_latitude) == FALSE &
@@ -159,7 +168,8 @@ dat_census <- st_join(dat2 %>%
   mutate(to_longitude = unlist(map(geometry, 1)),
          to_latitude = unlist(map(geometry, 2)))%>%
   as.data.frame() %>%
-  select(-geometry)
+  select(-geometry) %>%
+  na.omit()
 ```
 
 
@@ -167,7 +177,7 @@ dat_census <- st_join(dat2 %>%
 
 ```{r import_weather, message = FALSE, warning = FALSE, cache = TRUE}
 weather.Panel <- 
-  riem_measures(station = "ORD", date_start = "2018-05-01", date_end = "2018-05-31") %>%
+  riem_measures(station = "KBOS", date_start = "2018-05-01", date_end = "2018-05-31") %>%
   dplyr::select(valid, tmpf, p01i, sknt)%>%
   replace(is.na(.), 0) %>%
     mutate(interval60 = ymd_h(substr(valid,1,13))) %>%
@@ -190,7 +200,7 @@ grid.arrange(
     labs(title="Wind Speed", x="Hour", y="Wind Speed") + plotTheme,
   ggplot(weather.Panel, aes(interval60,Temperature)) + geom_line() + 
     labs(title="Temperature", x="Hour", y="Temperature") + plotTheme,
-  top="Weather Data - Chicago ORD - May, 2018")
+  top="Weather Data - Boston KBOS - May, 2018")
 ```
 
 ## 3.1 Describe and Explore the Data
@@ -203,13 +213,13 @@ ggplot(dat_census %>%
          group_by(interval60) %>%
          tally())+
   geom_line(aes(x = interval60, y = n))+
-  labs(title="Bike share trips per hr. Chicago, May, 2018",
+  labs(title="Bike share trips per hr. Boston, May, 2018",
        x="Date", 
        y="Number of trips")+
   plotTheme
 ```
 
-Examine distribution of trip volume by station fro different times of day. 
+Examine distribution of trip volume by station fordifferent times of day. 
 
 ```{r mean_trips_hist, warning = FALSE, message = FALSE, cache = TRUE}
 dat_census %>%
@@ -242,9 +252,9 @@ ggplot(dat_census %>%
 ```
 
 ```{r trips_hour_dotw, cache = TRUE}
-ggplot(dat_census %>% mutate(hour = hour(start_time)))+
+ggplot(dat_census %>% mutate(hour = hour(starttime)))+
      geom_freqpoly(aes(hour, color = dotw), binwidth = 1)+
-  labs(title="Bike share trips in Chicago, by day of the week, May, 2018",
+  labs(title="Bike share trips in Boston, by day of the week, May, 2018",
        x="Hour", 
        y="Trip Counts")+
      plotTheme
@@ -254,7 +264,7 @@ ggplot(dat_census %>%
          mutate(hour = hour(start_time),
                 weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday")))+
      geom_freqpoly(aes(hour, color = weekend), binwidth = 1)+
-  labs(title="Bike share trips in Chicago - weekend vs weekday, May, 2018",
+  labs(title="Bike share trips in Boston - weekend vs weekday, May, 2018",
        x="Hour", 
        y="Trip Counts")+
      plotTheme
