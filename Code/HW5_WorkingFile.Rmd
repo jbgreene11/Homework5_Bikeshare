@@ -156,7 +156,7 @@ bostonTracts <-
 ```
 
 ```{r add_census_tracts, cache = TRUE, message = FALSE, warning = FALSE}
-
+#THERE IS SOMETHING GOING WRONG HERE.
 dat_census <- st_join(dat2 %>% 
           filter(is.na(start.station.longitude) == FALSE &
                    is.na(start.station.latitude) == FALSE &
