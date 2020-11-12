@@ -507,7 +507,7 @@ rideshare_animation <-
   ggplot() +
     geom_sf(data = ride.animation.data, aes(fill = Trips)) +
     scale_fill_manual(values = palette5) +
-    labs(title = "Rideshare pickups for one day in November 2018",
+    labs(title = "Rideshare pickups for a Monday in April 2018",
          subtitle = "15 minute intervals: {current_frame}") +
     transition_manual(interval15) +
     mapTheme()
@@ -784,6 +784,41 @@ week_predictions <-
 
 week_predictions
 ```
+
+
+
+## 4.3 K-fold Cross Validation
+
+Note: k is set to 50 because it take too much time to run a 100-folds
+
+```{r}
+# use caret package cross-validation method
+fitControl <- trainControl(method = "cv", 
+                           number = 50,
+                           # savePredictions differs from book
+                           savePredictions = TRUE)
+
+set.seed(856)
+
+# for k-folds CV
+
+#Run Regression using K fold CV
+
+
+reg.cv <- 
+  train(Trip_Count ~ ., data = ride.panel %>% 
+    dplyr::select(Trip_Count,from_station_name ,interval60 ,dotw , Temperature , Precipitation ,
+                   lagHour , lag2Hours ,lag1day , holidayLag , holiday, weekend ,
+                    colleges.cat , nearpark , WP.cat
+                  ), 
+     method = "lm", 
+     trControl = fitControl, 
+     na.action = na.pass)
+
+reg.cv
+
+```
+
 
 ## 5.1. Examine Error Metrics for Accuracy
 
