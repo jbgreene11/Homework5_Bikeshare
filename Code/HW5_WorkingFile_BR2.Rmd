@@ -160,6 +160,7 @@ bostonTracts <-
 ```
 
 ```{r add_census_tracts, cache = TRUE, message = FALSE, warning = FALSE}
+#BR note: changed "left = TRUE" to "left = FALSE" to exclude data that was outside of boston tracts. Can someone confirm that the second "TRUE" should not also be made false?
 dat_census <- st_join(dat2 %>% 
           filter(is.na(from_longitude) == FALSE &
                    is.na(from_latitude) == FALSE &
@@ -169,7 +170,7 @@ dat_census <- st_join(dat2 %>%
         bostonTracts %>%
           st_transform(crs=4326),
         join=st_intersects,
-              left = TRUE) %>%
+              left = FALSE) %>%
     rename(Origin.Tract = GEOID) %>%
   mutate(from_longitude = unlist(map(geometry, 1)),
          from_latitude = unlist(map(geometry, 2)))%>%
@@ -297,7 +298,7 @@ ggplot()+
 
 
 ```{r origin_map, cache = TRUE, fig.width=7, fig.height=4}
-#Looks like something is off with our tracts...
+#Data appears to not be aligned with tracts - this is because the data is inclusive of tracts in Cambridge, which is not included in our tract data.
 
 ggplot()+
   geom_sf(data = bostonTracts %>%
@@ -419,7 +420,7 @@ ride.Test <- filter(ride.panel, week < 16)
 
 We create five linear models using the `lm` function
 ```{r five_models, cache = TRUE}
-#Getting an error here
+#Getting an error here. Removed holiday and and holidayLag from reg5
 
 reg1 <- 
   lm(Trip_Count ~  hour(interval60) + dotw + Temperature,  data=ride.Train)
@@ -438,7 +439,7 @@ reg4 <-
 
 reg5 <- 
   lm(Trip_Count ~  from_station_name + hour(interval60) + dotw + Temperature + Precipitation +
-                   lagHour + lag2Hours +lag3Hours +lag12Hours + lag1day + holidayLag + holiday, 
+                   lagHour + lag2Hours +lag3Hours +lag12Hours + lag1day, 
      data=ride.Train)
 ```
 
@@ -497,10 +498,10 @@ Plot Predicted/Observed Bike share time series
 ```{r error_vs_actual_timeseries, cache = TRUE, warning = FALSE, message = FALSE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           start.station.id = map(data, pull, start.station.id)) %>%
-    dplyr::select(interval60, start.station.id, Observed, Prediction, Regression) %>%
+           from_station_id = map(data, pull, from_station_id)) %>%
+    dplyr::select(interval60, from_station_id, Observed, Prediction, Regression) %>%
     unnest() %>%
-    gather(Variable, Value, -Regression, -interval60, -start.station.id) %>%
+    gather(Variable, Value, -Regression, -interval60, -from_station_id) %>%
     group_by(Regression, Variable, interval60) %>%
     summarize(Value = sum(Value)) %>%
     ggplot(aes(interval60, Value, colour=Variable)) + 
@@ -515,22 +516,22 @@ Plot Mean Absolute Errors by station
 ```{r errors_by_station, warning = FALSE, message = FALSE, cache = TRUE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           from_station_id = map(data, pull, start.station.id), 
-           from_latitude = map(data, pull, start.station.latitude), 
-           from_longitude = map(data, pull, start.station.longitude)) %>%
-    select(interval60, start.station.id, start.station.longitude, start.station.latitude, Observed, Prediction, Regression) %>%
+           from_station_id = map(data, pull, from_station_id), 
+           from_latitude = map(data, pull, from_latitude), 
+           from_longitude = map(data, pull, from_longitude)) %>%
+    select(interval60, from_station_id, from_longitude, from_latitude, Observed, Prediction, Regression) %>%
     unnest() %>%
   filter(Regression == "ETime_Space_FE_timeLags_holidayLags") %>%
-  group_by(start.station.id, start.station.longitude, start.station.latitude) %>%
+  group_by(from_station_id, from_longitude, from_latitude) %>%
   summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
 ggplot(.)+
   geom_sf(data = bostonCensus, color = "grey", fill = "transparent")+
-  geom_point(aes(x = start.station.longitude, y = start.station.latitude, color = MAE), 
+  geom_point(aes(x = from_longitude, y = from_latitude, color = MAE), 
              fill = "transparent", alpha = 0.4)+
   scale_colour_viridis(direction = -1,
   discrete = FALSE, option = "D")+
-  ylim(min(dat_census$start.station.latitude), max(dat_census$start.station.latitude))+
-  xlim(min(dat_census$start.station.longitude), max(dat_census$start.station.longitude))+
+  ylim(min(dat_census$from_latitude), max(dat_census$from_latitude))+
+  xlim(min(dat_census$from_longitude), max(dat_census$from_longitude))+
   labs(title="Mean Abs Error, Test Set, Model 5")+
   mapTheme
 ```
@@ -542,12 +543,12 @@ plot observed vs. predicted for different times of day during the week and weeke
 ```{r obs_pred_all, warning=FALSE, message = FALSE, cache=TRUE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           start.station.id = map(data, pull, start.station.id), 
-           start.station.latitude = map(data, pull, start.station.latitude), 
-           start.station.longitude = map(data, pull, start.station.longitude),
+           from_station_id = map(data, pull, from_station_id), 
+           from_latitude = map(data, pull, from_latitude), 
+           from_longitude = map(data, pull, from_longitude),
            dotw = map(data, pull, dotw)) %>%
-    select(interval60, start.station.id, start.station.longitude, 
-           start.station.latitude, Observed, Prediction, Regression,
+    select(interval60, from_station_id, from_longitude, 
+           from_latitude, Observed, Prediction, Regression,
            dotw) %>%
     unnest() %>%
   filter(Regression == "ETime_Space_FE_timeLags_holidayLags")%>%
@@ -572,12 +573,12 @@ Plot errors on a map by weekend/weekday and time of day.
 ```{r station_summary, warning=FALSE, message = FALSE, cache = TRUE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           start.station.id = map(data, pull, start.station.id), 
-           start.station.latitude = map(data, pull, start.station.latitude), 
-           start.station.longitude = map(data, pull, start.station.longitude),
+           from_station_id = map(data, pull, from_station_id), 
+           from_latitude = map(data, pull, from_latitude), 
+           from_longitude = map(data, pull, from_longitude),
            dotw = map(data, pull, dotw) ) %>%
-    select(interval60, start.station.id, start.station.longitude, 
-           start.station.latitude, Observed, Prediction, Regression,
+    select(interval60, from_station_id, from_longitude, 
+           from_latitude, Observed, Prediction, Regression,
            dotw) %>%
     unnest() %>%
   filter(Regression == "ETime_Space_FE_timeLags_holidayLags")%>%
@@ -586,16 +587,16 @@ week_predictions %>%
                                  hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
                                  hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
                                  hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush")) %>%
-  group_by(start.station.id, weekend, time_of_day, start.station.longitude, start.station.latitude) %>%
+  group_by(from_station_id, weekend, time_of_day, from_longitude, from_latitude) %>%
   summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
   ggplot(.)+
   geom_sf(data = bostonCensus, color = "grey", fill = "transparent")+
-  geom_point(aes(x = start.station.longitude, y = start.station.latitude, color = MAE), 
+  geom_point(aes(x = from_longitude, y = from_latitude, color = MAE), 
              fill = "transparent", size = 0.5, alpha = 0.4)+
   scale_colour_viridis(direction = -1,
   discrete = FALSE, option = "D")+
-  ylim(min(dat_census$start.station.latitude), max(dat_census$start.station.latitude))+
-  xlim(min(dat_census$start.station.longitude), max(dat_census$start.station.longitude))+
+  ylim(min(dat_census$from_latitude), max(dat_census$from_latitude))+
+  xlim(min(dat_census$from_longitude), max(dat_census$from_longitude))+
   facet_grid(weekend~time_of_day)+
   labs(title="Mean Absolute Errors, Test Set")+
   mapTheme
@@ -607,15 +608,15 @@ Focus on the morning commute - Plot Errors as a function of socio-economic varia
 ```{r station_summary2, warning=FALSE, message = FALSE, cache = TRUE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           start.station.id = map(data, pull, start.station.id), 
-           start.station.latitude = map(data, pull, start.station.latitude), 
-           from_longitude = map(data, pull, start.station.longitude),
+           from_station_id = map(data, pull, from_station_id), 
+           from_latitude = map(data, pull, from_latitude), 
+           from_longitude = map(data, pull, from_longitude),
            dotw = map(data, pull, dotw),
            Percent_Taking_Public_Trans = map(data, pull, Percent_Taking_Public_Trans),
            Med_Inc = map(data, pull, Med_Inc),
            Percent_White = map(data, pull, Percent_White)) %>%
-    select(interval60, start.station.id, start.station.longitude, 
-           start.station.latitude, Observed, Prediction, Regression,
+    select(interval60, from_station_id, from_longitude, 
+           from_latitude, Observed, Prediction, Regression,
            dotw, Percent_Taking_Public_Trans, Med_Inc, Percent_White) %>%
     unnest() %>%
   filter(Regression == "ETime_Space_FE_timeLags_holidayLags")%>%
@@ -625,9 +626,9 @@ week_predictions %>%
                                  hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
                                  hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush")) %>%
   filter(time_of_day == "AM Rush") %>%
-  group_by(start.station.id, Percent_Taking_Public_Trans, Med_Inc, Percent_White) %>%
+  group_by(from_station_id, Percent_Taking_Public_Trans, Med_Inc, Percent_White) %>%
   summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
-  gather(-start.station.id, -MAE, key = "variable", value = "value")%>%
+  gather(-from_station_id, -MAE, key = "variable", value = "value")%>%
   ggplot(.)+
   #geom_sf(data = chicagoCensus, color = "grey", fill = "transparent")+
   geom_point(aes(x = value, y = MAE), alpha = 0.4)+

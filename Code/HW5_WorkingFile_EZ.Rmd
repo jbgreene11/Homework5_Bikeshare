@@ -26,6 +26,8 @@ library(gridExtra)
 library(knitr)
 library(kableExtra)
 library(RSocrata)
+library(gganimate)
+library(gifski)
 
 plotTheme <- theme(
   plot.title =element_text(size=12),
@@ -60,9 +62,92 @@ mapTheme <- theme(plot.title =element_text(size=12),
                   plot.margin = margin(1, 1, 1, 1, 'cm'),
                   legend.key.height = unit(1, "cm"), legend.key.width = unit(0.2, "cm"))
 
+palette6 <- c("#eff3ff","#bdd7e7","#6baed6","#3182bd","#08519c",'#053260')
 palette5 <- c("#eff3ff","#bdd7e7","#6baed6","#3182bd","#08519c")
 palette4 <- c("#D2FBD4","#92BCAB","#527D82","#123F5A")
 palette2 <- c("#6baed6","#08519c")
+
+mapTheme <- function(base_size = 12) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(size = 16,colour = "black"),
+    plot.subtitle=element_text(face="italic"),
+    plot.caption=element_text(hjust=0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(colour = "black", fill=NA, size=2),
+    strip.text.x = element_text(size = 14))
+}
+
+plotTheme <- function(base_size = 12) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(size = 16,colour = "black"),
+    plot.subtitle = element_text(face="italic"),
+    plot.caption = element_text(hjust=0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    panel.grid.major = element_line("grey80", size = 0.1),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(colour = "black", fill=NA, size=2),
+    strip.background = element_rect(fill = "grey80", color = "white"),
+    strip.text = element_text(size=12),
+    axis.title = element_text(size=12),
+    axis.text = element_text(size=10),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    legend.title = element_text(colour = "black", face = "italic"),
+    legend.text = element_text(colour = "black", face = "italic"),
+    strip.text.x = element_text(size = 14)
+  )
+}
+
+# Load Quantile break functions
+
+qBr <- function(df, variable, rnd) {
+  if (missing(rnd)) {
+    as.character(quantile(round(df[[variable]],0),
+                          c(.01,.2,.4,.6,.8), na.rm=T))
+  } else if (rnd == FALSE | rnd == F) {
+    as.character(formatC(quantile(df[[variable]]), digits = 3),
+                 c(.01,.2,.4,.6,.8), na.rm=T)
+  }
+}
+
+qBr2 <- function(df, variable, rnd) {
+  if (missing(rnd)) {
+    as.character(round(quantile(round(df[[variable]],0),
+                          c(.01,.2,.4,.6,.8), na.rm=T)))
+  } else if (rnd == FALSE | rnd == F) {
+    as.character(round(formatC(quantile(round(df[[variable]]), 0)),
+                 c(.01,.2,.4,.6,.8), na.rm=T))
+  }
+}
+
+nn_function <- function(measureFrom,measureTo,k) {
+  measureFrom_Matrix <- as.matrix(measureFrom)
+  measureTo_Matrix <- as.matrix(measureTo)
+  nn <-   
+    get.knnx(measureTo, measureFrom, k)$nn.dist
+    output <-
+      as.data.frame(nn) %>%
+      rownames_to_column(var = "thisPoint") %>%
+      gather(points, point_distance, V1:ncol(.)) %>%
+      arrange(as.numeric(thisPoint)) %>%
+      group_by(thisPoint) %>%
+      summarize(pointDistance = mean(point_distance)) %>%
+      arrange(as.numeric(thisPoint)) %>% 
+      dplyr::select(-thisPoint) %>%
+      pull()
+  
+  return(output)  
+}
+
+q5 <- function(variable) {as.factor(ntile(variable, 5))}
 ```
 
 
@@ -95,9 +180,7 @@ Used the previous month (April) since it had the date and year information in th
 ```{r read_dat, cache = TRUE}
 
 bostonbikes <-
-  read.csv('C:/Users/rawnb/Documents/GitHub/MUSA508/Homework5_Bikeshare/data/HubwayTrips.csv', header=TRUE)
-
-
+  read.csv('D:/Rdata/Homework5_Bikeshare/data/HubwayTrips.csv', header=TRUE)
 
 dat <- bostonbikes
 
@@ -160,6 +243,7 @@ bostonTracts <-
 ```
 
 ```{r add_census_tracts, cache = TRUE, message = FALSE, warning = FALSE}
+#BR note: changed "left = TRUE" to "left = FALSE" to exclude data that was outside of boston tracts. Can someone confirm that the second "TRUE" should not also be made false?
 dat_census <- st_join(dat2 %>% 
           filter(is.na(from_longitude) == FALSE &
                    is.na(from_latitude) == FALSE &
@@ -169,7 +253,7 @@ dat_census <- st_join(dat2 %>%
         bostonTracts %>%
           st_transform(crs=4326),
         join=st_intersects,
-              left = TRUE) %>%
+              left = FALSE) %>%
     rename(Origin.Tract = GEOID) %>%
   mutate(from_longitude = unlist(map(geometry, 1)),
          from_latitude = unlist(map(geometry, 2)))%>%
@@ -297,7 +381,7 @@ ggplot()+
 
 
 ```{r origin_map, cache = TRUE, fig.width=7, fig.height=4}
-#Looks like something is off with our tracts...
+#Data appears to not be aligned with tracts - this is because the data is inclusive of tracts in Cambridge, which is not included in our tract data.
 
 ggplot()+
   geom_sf(data = bostonTracts %>%
@@ -312,7 +396,7 @@ ggplot()+
               group_by(from_station_id, from_latitude, from_longitude, weekend, time_of_day) %>%
               tally(),
             aes(x=from_longitude, y = from_latitude, color = n), 
-            fill = "transparent", alpha = 0.4, size = 0.3)+
+            fill = "transparent", alpha = 1, size = 0.6)+
   scale_colour_viridis(direction = -1,
   discrete = FALSE, option = "D")+
   ylim(min(dat_census$from_latitude), max(dat_census$from_latitude))+
@@ -321,6 +405,9 @@ ggplot()+
   labs(title="Bike Share Trips per hr by Station. Boston, April, 2018")+
   mapTheme
 ```
+
+
+
 
 ## 3.2. Create Time-Space Panel
 
@@ -334,7 +421,8 @@ study.panel <-
   expand.grid(interval60=unique(dat_census$interval60), 
               from_station_id = unique(dat_census$from_station_id)) %>%
   left_join(., dat_census %>%
-              select(from_station_id, from_station_name, Origin.Tract, from_longitude, from_latitude )%>%
+              select(from_station_id, from_station_name, Origin.Tract, 
+                     from_longitude, from_latitude, to_longitude,to_latitude )%>%
               distinct() %>%
               group_by(from_station_id) %>%
               slice(1))%>%
@@ -350,7 +438,8 @@ ride.panel <-
   dat_census %>%
   mutate(Trip_Counter = 1) %>%
   right_join(study.panel) %>% 
-  group_by(interval60, from_station_id, from_station_name, Origin.Tract, from_longitude, from_latitude) %>%
+  group_by(interval60, from_station_id, from_station_name, Origin.Tract, 
+           from_longitude, from_latitude,to_longitude,to_latitude) %>%
   summarize(Trip_Count = sum(Trip_Counter, na.rm=T)) %>%
   left_join(weather.Panel) %>%
   ungroup() %>%
@@ -367,11 +456,75 @@ ride.panel <-
               select(-geometry), by = c("Origin.Tract" = "GEOID"))
 ```
 
+- create an animated map
+
+```{r}
+
+#study area tract
+
+a <- ride.panel %>% 
+  group_by(week, Origin.Tract) %>%
+  summarize(Sum_Trip_Count = sum(Trip_Count)) %>%
+  ungroup()
+  
+a %>% 
+  ggplot() + geom_sf(aes(fill = q5(Sum_Trip_Count))) +
+    facet_wrap(~week, ncol = 8) +
+    scale_fill_manual(values = palette5,
+                      name = "Trip_Count") +
+    labs(title="Sum of rideshare trips by tract and week") +
+    mapTheme() + theme(legend.position = "bottom") 
+
+```
+
+```{r}
+
+week14 <-
+  filter(dat_census , week == 14 & dotw == "Mon")
+
+week14.panel <-
+  expand.grid(
+    interval15 = unique(week14$interval15),
+    Origin.Tract = unique(dat_census$Origin.Tract))
+
+ride.animation.data <-
+  mutate(week14, Trip_Counter = 1) %>%
+    right_join(week14.panel) %>% 
+    group_by(interval15, Origin.Tract) %>%
+    summarize(Trip_Count = sum(Trip_Counter, na.rm=T)) %>% 
+    ungroup() %>% 
+    left_join(bostonTracts, by=c("Origin.Tract" = "GEOID")) %>%
+    st_sf() %>%
+    mutate(Trips = case_when(Trip_Count == 0 ~ "0 trips",
+                             Trip_Count > 0 & Trip_Count <= 3 ~ "1-3 trips",
+                             Trip_Count > 3 & Trip_Count <= 6 ~ "4-6 trips",
+                             Trip_Count > 6 & Trip_Count <= 10 ~ "7-10 trips",
+                             Trip_Count > 10 ~ "11+ trips")) %>%
+    mutate(Trips  = fct_relevel(Trips, "0 trips","1-3 trips","4-6 trips",
+                                       "7-10 trips","10+ trips"))
+
+rideshare_animation <-
+  ggplot() +
+    geom_sf(data = ride.animation.data, aes(fill = Trips)) +
+    scale_fill_manual(values = palette5) +
+    labs(title = "Rideshare pickups for a Monday in April 2018",
+         subtitle = "15 minute intervals: {current_frame}") +
+    transition_manual(interval15) +
+    mapTheme()
+
+animate(rideshare_animation, duration=20, renderer = gifski_renderer())
+```
+
+
+
+
+
+
 ## 3.3. Create time lags
-#BR note: changed holiday from Memorial Day (May) to Easter, which was April 1st in 2018 and the 91st day of the year.
 
 Creating time lag variables
 
+holiday is changed to April 1, and no minus days. 
 
 ```{r time_lags, cache = TRUE, message = FALSE}
 ride.panel <- 
@@ -387,11 +540,8 @@ ride.panel <-
    mutate(day = yday(interval60)) %>%
    mutate(holidayLag = case_when(dplyr::lag(holiday, 1) == 1 ~ "PlusOneDay",
                                  dplyr::lag(holiday, 2) == 1 ~ "PlustTwoDays",
-                                 dplyr::lag(holiday, 3) == 1 ~ "PlustThreeDays",
-                                 dplyr::lead(holiday, 1) == 1 ~ "MinusOneDay",
-                                 dplyr::lead(holiday, 2) == 1 ~ "MinusTwoDays",
-                                 dplyr::lead(holiday, 3) == 1 ~ "MinusThreeDays"),
-         holidayLag = replace_na(holidayLag, 0))
+                                 dplyr::lag(holiday, 3) == 1 ~ "PlustThreeDays"),
+         holidayLag = replace_na(holidayLag, value= 0))
 
 ```
 
@@ -407,17 +557,167 @@ as.data.frame(ride.panel) %>%
     summarize(correlation = round(cor(Value, Trip_Count),2))
 ```
 
+
+```{r}
+#add row index
+ride.panel <- ride.panel %>% mutate(id = row_number())
+```
+
+
+
+## 3.4 Other Features
+
+### 3.4.1 Time Features
+
+```{r}
+
+ride.panel <- ride.panel %>% 
+  mutate(weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
+
+```
+
+
+### 3.4.2 Spatial Features
+
+```{r}
+nn_function <- function(measureFrom,measureTo,k) {
+  measureFrom_Matrix <- as.matrix(measureFrom)
+  measureTo_Matrix <- as.matrix(measureTo)
+  nn <-   
+    get.knnx(measureTo, measureFrom, k)$nn.dist
+    output <-
+      as.data.frame(nn) %>%
+      rownames_to_column(var = "thisPoint") %>%
+      gather(points, point_distance, V1:ncol(.)) %>%
+      arrange(as.numeric(thisPoint)) %>%
+      group_by(thisPoint) %>%
+      summarize(pointDistance = mean(point_distance)) %>%
+      arrange(as.numeric(thisPoint)) %>% 
+      dplyr::select(-thisPoint) %>%
+      pull()
+  
+  return(output)  
+}
+
+st_c <- st_coordinates
+st_coid <- st_centroid
+```
+
+
+```{r}
+
+ride.panel.geo.from <- 
+  st_as_sf(ride.panel,coords = c('from_longitude','from_latitude'),crs=4326) %>% 
+  st_transform(st_crs(bostonTracts))
+
+ride.panel.geo.to <- 
+  st_as_sf(ride.panel,coords = c('to_longitude','to_latitude'),crs=4326) %>% 
+  st_transform(st_crs(bostonTracts))
+
+```
+
+
+- water and parkways
+```{r}
+WaterParkways <- 
+  st_read("https://opendata.arcgis.com/datasets/2868d370c55d4d458d4ae2224ef8cddd_7.geojson") %>%
+  st_transform(st_crs(bostonTracts)) %>% 
+  filter(TypeLong =="Parkways, Reservations & Beaches" )
+
+WP.point <- st_cast(WaterParkways,"POINT") 
+
+ride.panel.geo.to <- 
+  ride.panel.geo.to %>%
+  mutate(dist.WP = nn_function(st_coordinates(ride.panel.geo.to), 
+                                  st_coordinates(WP.point), 1))
+
+ride.panel.geo.to <- 
+  ride.panel.geo.to %>%
+  mutate(WP.cat = case_when(
+                  dist.WP >= 0 & dist.WP < 0.005  ~ "near WP",
+                  dist.WP >= 0.005  ~ "not near WP"))
+```
+- open space
+
+See if the destination is within the 100m buffer of parks larger than 15 acres.
+
+EZ Note: I'm not sure about the measurement unit of the projection here. In st_crs, it says the measurement unit is meter, but it's not consistent with the buffer distance input. I assume the measurement unit is something around 1000*100 meters. So 0.001 will be approximately 100m
+
+```{r}
+openspace <- 
+  st_read("https://opendata.arcgis.com/datasets/2868d370c55d4d458d4ae2224ef8cddd_7.geojson") %>%
+  st_transform(st_crs(bostonTracts)) %>% 
+  filter(TypeLong =="Parks, Playgrounds & Athletic Fields") %>% 
+  filter(ACRES >= 15)
+
+openspaceBuffer <-
+  st_buffer(openspace, 0.003) 
+
+nearpark <- st_intersection(ride.panel.geo.to,openspaceBuffer) %>% 
+  dplyr::select(id) %>% 
+  st_drop_geometry() %>% 
+  mutate(nearpark = 'yes')
+
+ride.panel.geo.to <- left_join(ride.panel.geo.to,nearpark, by='id') 
+ride.panel.geo.to$nearpark <- replace_na(ride.panel.geo.to$nearpark, value = 'no')
+
+```
+
+
+- colleges and universities
+
+
+```{r}
+colleges <- 
+  st_read("https://opendata.arcgis.com/datasets/cbf14bb032ef4bd38e20429f71acb61a_2.geojson") %>%
+  st_transform(st_crs(bostonTracts)) 
+
+ride.panel.geo.from <-
+  ride.panel.geo.from %>% 
+  mutate(dist.college =  nn_function(st_c(ride.panel.geo.from), 
+                      st_c(st_coid(colleges)),1))
+
+ride.panel.geo.from <-
+  ride.panel.geo.from %>%
+  mutate(colleges.cat = case_when(
+                  dist.college >= 0 & dist.college < 0.005  ~ "0-500m",
+                  dist.college >= 0.005 & dist.college < 0.01  ~ "500-1000",
+                  dist.college >= 0.01 & dist.college < 50 ~ "outside"))
+
+```
+
+
+- join new features to ride.panel
+
+```{r}
+ride.panel.geo.from.dat <- ride.panel.geo.from %>% 
+  st_drop_geometry() %>% 
+  dplyr::select(id,dist.college, colleges.cat)
+
+ride.panel.geo.to.dat <- as.data.frame(ride.panel.geo.to) %>% 
+  dplyr::select(id,nearpark,dist.WP,WP.cat)
+
+ride.panel <- left_join(ride.panel,ride.panel.geo.from.dat, by='id')
+ride.panel <- left_join(ride.panel,ride.panel.geo.to.dat, by='id')
+```
+
+
+
+
 ## 4.1 Run Models
 
 Split our data into a training and a test set
+train it with the first two weeks
 ```{r train_test, cache = TRUE}
 #BR Note:
 #Previously was week >= 20 and week < 20
-ride.Train <- filter(ride.panel, week >= 16)
-ride.Test <- filter(ride.panel, week < 16)
+ride.Train <- filter(ride.panel, week < 16)
+ride.Test <- filter(ride.panel, week >= 16)
 ```
 
 We create five linear models using the `lm` function
+
+
 ```{r five_models, cache = TRUE}
 #Getting an error here
 
@@ -438,8 +738,15 @@ reg4 <-
 
 reg5 <- 
   lm(Trip_Count ~  from_station_name + hour(interval60) + dotw + Temperature + Precipitation +
-                   lagHour + lag2Hours +lag3Hours +lag12Hours + lag1day + holidayLag + holiday, 
+                   lagHour + lag2Hours +lag1day + holidayLag + holiday, 
      data=ride.Train)
+
+reg6 <- 
+  lm(Trip_Count ~  from_station_name + hour(interval60) + dotw + Temperature + Precipitation +
+                   lagHour + lag2Hours +lag1day + holidayLag + holiday+ weekend +
+                    colleges.cat + nearpark + WP.cat , 
+     data=ride.Train)
+
 ```
 
 
@@ -467,7 +774,8 @@ week_predictions <-
            BSpace_FE = map(.x = data, fit = reg2, .f = model_pred),
            CTime_Space_FE = map(.x = data, fit = reg3, .f = model_pred),
            DTime_Space_FE_timeLags = map(.x = data, fit = reg4, .f = model_pred),
-           ETime_Space_FE_timeLags_holidayLags = map(.x = data, fit = reg5, .f = model_pred)) %>% 
+           ETime_Space_FE_timeLags_holidayLags = map(.x = data, fit = reg5, .f = model_pred),
+           FAll_Ameneties = map(.x = data, fit = reg6, .f = model_pred)) %>% 
     gather(Regression, Prediction, -data, -week) %>%
     mutate(Observed = map(data, pull, Trip_Count),
            Absolute_Error = map2(Observed, Prediction,  ~ abs(.x - .y)),
@@ -477,9 +785,46 @@ week_predictions <-
 week_predictions
 ```
 
+
+
+## 4.3 K-fold Cross Validation
+
+Note: k is set to 50 because it take too much time to run a 100-folds
+
+```{r}
+# use caret package cross-validation method
+fitControl <- trainControl(method = "cv", 
+                           number = 50,
+                           # savePredictions differs from book
+                           savePredictions = TRUE)
+
+set.seed(856)
+
+# for k-folds CV
+
+#Run Regression using K fold CV
+
+
+reg.cv <- 
+  train(Trip_Count ~ ., data = ride.panel %>% 
+    dplyr::select(Trip_Count,from_station_name ,interval60 ,dotw , Temperature , Precipitation ,
+                   lagHour , lag2Hours ,lag1day , holidayLag , holiday, weekend ,
+                    colleges.cat , nearpark , WP.cat
+                  ), 
+     method = "lm", 
+     trControl = fitControl, 
+     na.action = na.pass)
+
+reg.cv
+
+```
+
+
 ## 5.1. Examine Error Metrics for Accuracy
 
 Plot Mean Absolute Errors by model spec and week
+
+Spatial features of amenities only slightly improved the model.
 
 ```{r plot_errors_by_model, cache = TRUE}
 week_predictions %>%
@@ -487,7 +832,7 @@ week_predictions %>%
   gather(Variable, MAE, -Regression, -week) %>%
   ggplot(aes(week, MAE)) + 
     geom_bar(aes(fill = Regression), position = "dodge", stat="identity") +
-    scale_fill_manual(values = palette5) +
+    scale_fill_manual(values = palette6) +
     labs(title = "Mean Absolute Errors by model specification and week") +
   plotTheme
 ```
@@ -497,10 +842,10 @@ Plot Predicted/Observed Bike share time series
 ```{r error_vs_actual_timeseries, cache = TRUE, warning = FALSE, message = FALSE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           start.station.id = map(data, pull, start.station.id)) %>%
-    dplyr::select(interval60, start.station.id, Observed, Prediction, Regression) %>%
+           from_station_id = map(data, pull, from_station_id)) %>%
+    dplyr::select(interval60, from_station_id, Observed, Prediction, Regression) %>%
     unnest() %>%
-    gather(Variable, Value, -Regression, -interval60, -start.station.id) %>%
+    gather(Variable, Value, -Regression, -interval60, -from_station_id) %>%
     group_by(Regression, Variable, interval60) %>%
     summarize(Value = sum(Value)) %>%
     ggplot(aes(interval60, Value, colour=Variable)) + 
@@ -515,22 +860,22 @@ Plot Mean Absolute Errors by station
 ```{r errors_by_station, warning = FALSE, message = FALSE, cache = TRUE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           from_station_id = map(data, pull, start.station.id), 
-           from_latitude = map(data, pull, start.station.latitude), 
-           from_longitude = map(data, pull, start.station.longitude)) %>%
-    select(interval60, start.station.id, start.station.longitude, start.station.latitude, Observed, Prediction, Regression) %>%
+           from_station_id = map(data, pull, from_station_id), 
+           from_latitude = map(data, pull, from_latitude), 
+           from_longitude = map(data, pull, from_longitude)) %>%
+    select(interval60, from_station_id, from_longitude, from_latitude, Observed, Prediction, Regression) %>%
     unnest() %>%
   filter(Regression == "ETime_Space_FE_timeLags_holidayLags") %>%
-  group_by(start.station.id, start.station.longitude, start.station.latitude) %>%
+  group_by(from_station_id, from_longitude, from_latitude) %>%
   summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
 ggplot(.)+
   geom_sf(data = bostonCensus, color = "grey", fill = "transparent")+
-  geom_point(aes(x = start.station.longitude, y = start.station.latitude, color = MAE), 
-             fill = "transparent", alpha = 0.4)+
+  geom_point(aes(x = from_longitude, y = from_latitude, color = MAE), 
+             fill = "transparent", alpha = 1)+
   scale_colour_viridis(direction = -1,
   discrete = FALSE, option = "D")+
-  ylim(min(dat_census$start.station.latitude), max(dat_census$start.station.latitude))+
-  xlim(min(dat_census$start.station.longitude), max(dat_census$start.station.longitude))+
+  ylim(min(dat_census$from_latitude), max(dat_census$from_latitude))+
+  xlim(min(dat_census$from_longitude), max(dat_census$from_longitude))+
   labs(title="Mean Abs Error, Test Set, Model 5")+
   mapTheme
 ```
@@ -542,12 +887,12 @@ plot observed vs. predicted for different times of day during the week and weeke
 ```{r obs_pred_all, warning=FALSE, message = FALSE, cache=TRUE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           start.station.id = map(data, pull, start.station.id), 
-           start.station.latitude = map(data, pull, start.station.latitude), 
-           start.station.longitude = map(data, pull, start.station.longitude),
+           from_station_id = map(data, pull, from_station_id), 
+           from_latitude = map(data, pull, from_latitude), 
+           from_longitude = map(data, pull, from_longitude),
            dotw = map(data, pull, dotw)) %>%
-    select(interval60, start.station.id, start.station.longitude, 
-           start.station.latitude, Observed, Prediction, Regression,
+    select(interval60, from_station_id, from_longitude, 
+           from_latitude, Observed, Prediction, Regression,
            dotw) %>%
     unnest() %>%
   filter(Regression == "ETime_Space_FE_timeLags_holidayLags")%>%
@@ -572,12 +917,12 @@ Plot errors on a map by weekend/weekday and time of day.
 ```{r station_summary, warning=FALSE, message = FALSE, cache = TRUE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           start.station.id = map(data, pull, start.station.id), 
-           start.station.latitude = map(data, pull, start.station.latitude), 
-           start.station.longitude = map(data, pull, start.station.longitude),
+           from_station_id = map(data, pull, from_station_id), 
+           from_latitude = map(data, pull, from_latitude), 
+           from_longitude = map(data, pull, from_longitude),
            dotw = map(data, pull, dotw) ) %>%
-    select(interval60, start.station.id, start.station.longitude, 
-           start.station.latitude, Observed, Prediction, Regression,
+    select(interval60, from_station_id, from_longitude, 
+           from_latitude, Observed, Prediction, Regression,
            dotw) %>%
     unnest() %>%
   filter(Regression == "ETime_Space_FE_timeLags_holidayLags")%>%
@@ -586,16 +931,16 @@ week_predictions %>%
                                  hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
                                  hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
                                  hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush")) %>%
-  group_by(start.station.id, weekend, time_of_day, start.station.longitude, start.station.latitude) %>%
+  group_by(from_station_id, weekend, time_of_day, from_longitude, from_latitude) %>%
   summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
   ggplot(.)+
   geom_sf(data = bostonCensus, color = "grey", fill = "transparent")+
-  geom_point(aes(x = start.station.longitude, y = start.station.latitude, color = MAE), 
-             fill = "transparent", size = 0.5, alpha = 0.4)+
+  geom_point(aes(x = from_longitude, y = from_latitude, color = MAE), 
+             fill = "transparent", size = 1, alpha = 1)+
   scale_colour_viridis(direction = -1,
   discrete = FALSE, option = "D")+
-  ylim(min(dat_census$start.station.latitude), max(dat_census$start.station.latitude))+
-  xlim(min(dat_census$start.station.longitude), max(dat_census$start.station.longitude))+
+  ylim(min(dat_census$from_latitude), max(dat_census$from_latitude))+
+  xlim(min(dat_census$from_longitude), max(dat_census$from_longitude))+
   facet_grid(weekend~time_of_day)+
   labs(title="Mean Absolute Errors, Test Set")+
   mapTheme
@@ -607,15 +952,15 @@ Focus on the morning commute - Plot Errors as a function of socio-economic varia
 ```{r station_summary2, warning=FALSE, message = FALSE, cache = TRUE}
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
-           start.station.id = map(data, pull, start.station.id), 
-           start.station.latitude = map(data, pull, start.station.latitude), 
-           from_longitude = map(data, pull, start.station.longitude),
+           from_station_id = map(data, pull, from_station_id), 
+           from_latitude = map(data, pull, from_latitude), 
+           from_longitude = map(data, pull, from_longitude),
            dotw = map(data, pull, dotw),
            Percent_Taking_Public_Trans = map(data, pull, Percent_Taking_Public_Trans),
            Med_Inc = map(data, pull, Med_Inc),
            Percent_White = map(data, pull, Percent_White)) %>%
-    select(interval60, start.station.id, start.station.longitude, 
-           start.station.latitude, Observed, Prediction, Regression,
+    select(interval60, from_station_id, from_longitude, 
+           from_latitude, Observed, Prediction, Regression,
            dotw, Percent_Taking_Public_Trans, Med_Inc, Percent_White) %>%
     unnest() %>%
   filter(Regression == "ETime_Space_FE_timeLags_holidayLags")%>%
@@ -625,9 +970,9 @@ week_predictions %>%
                                  hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
                                  hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush")) %>%
   filter(time_of_day == "AM Rush") %>%
-  group_by(start.station.id, Percent_Taking_Public_Trans, Med_Inc, Percent_White) %>%
+  group_by(from_station_id, Percent_Taking_Public_Trans, Med_Inc, Percent_White) %>%
   summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
-  gather(-start.station.id, -MAE, key = "variable", value = "value")%>%
+  gather(-from_station_id, -MAE, key = "variable", value = "value")%>%
   ggplot(.)+
   #geom_sf(data = chicagoCensus, color = "grey", fill = "transparent")+
   geom_point(aes(x = value, y = MAE), alpha = 0.4)+
