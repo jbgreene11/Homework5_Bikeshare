@@ -171,9 +171,7 @@ census_api_key("c0e7f2bf1ed21adb8eca6c9652036dfd5c6e1040", overwrite = TRUE)
 
 ```{r, eval=FALSE, catche = TRUE, echo=FALSE, message=FALSE, warning=FALSE}
 
-JR note: 
 
-See Item #2 in the Assignment (section 8.6) Is this the right amount of data? Includes all rides for the month of may in Boston 2018. Important - this csv file is really.. touchy. It's a comma separated csv (the date column includes both date and time data). Every time I tried to edit something in the csv and save it, it became corrupted. To read in correctly, it has to be the csv as it is downloaded from the website. Here's the link. 
 
 Link on Open Data - the dataset is managed by an outside resource
 
